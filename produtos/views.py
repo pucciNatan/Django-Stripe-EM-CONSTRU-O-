@@ -2,44 +2,31 @@ from django.shortcuts import render, get_object_or_404
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
-from .models import Produto
+from .models import Produto, Pedido
+import json
 import stripe
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
-def create_checkout_session(request, id):
-    try:
-        produto = Produto.objects.get(id=id)
-    except Produto.DoesNotExist:
-        return JsonResponse({'error': 'Produto não encontrado.'}, status=404)
+@csrf_exempt
+def create_payment(request, id):
+    produto = Produto.objects.get(id = id)
+    email = json.loads(request.body)['email']
 
-    YOUR_DOMAIN = "http://127.0.0.1:8000"
-    checkout_session = stripe.checkout.Session.create(
-        line_items=[
-            {
-                'price_data': {
-                    'currency': 'BRL',
-                    'unit_amount': int(produto.preco * 100),  # Converting to cents
-                    'product_data': {
-                        'name': produto.nome,
-                    },
-                },
-                'quantity': 1,
-            },
-        ],
-        payment_method_types=[
-            'card',
-            'boleto',
-        ],
-        metadata={
-            'id_produto': produto.id,
-        },
-        mode='payment',
-        success_url=YOUR_DOMAIN + '/produtos/sucesso',
-        cancel_url=YOUR_DOMAIN + '/produtos/erro',
+    intent = stripe.PaymentIntent.create(
+        amount = int(produto.preco),
+        currency = 'BRL',
+        metadata = {
+            'produto_id': produto.id,
+            'email': email
+        }
     )
-    return JsonResponse({'id': checkout_session.id})
+    
+    return JsonResponse({
+        'clientSecret': intent['client_secret'],
+    })
 
+    
 def home(request):
     try:
         produto = Produto.objects.get(id=1)
@@ -57,19 +44,40 @@ def erro(request):
 @csrf_exempt
 def stripe_webhook(request):
     payload = request.body
-    sig_header = request.META['HTTP_STRIPE_SIGNATURE']
-    event = None
+    sig_header = request.META.get('HTTP_STRIPE_SIGNATURE', '')
     endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
 
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
     except ValueError as e:
+        # Payload inválido
         return HttpResponse(status=400)
-    
     except stripe.error.SignatureVerificationError as e:
+        # Assinatura inválida
         return HttpResponse(status=400)
-   
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        
+
+    # Lidar com o evento
+    if event['type'] == 'payment_intent.succeeded':
+        payment_intent = event['data']['object']
+        email = None
+
+        # Obter o ID do Payment Method do Payment Intent
+        payment_method_id = payment_intent.get('payment_method')
+        if payment_method_id:
+            # Recuperar o objeto Payment Method
+            payment_method = stripe.PaymentMethod.retrieve(payment_method_id)
+            email = payment_method['billing_details'].get('email')
+
+            pedido = Pedido(produto_id = payment_intent['metadata']['produto_id'],
+                            payment_intent = payment_intent['id'],
+                            email = email,
+                            valor_pago = payment_intent['amount'],
+                            status = payment_intent['status'])
+            print('Pedido salvo')
+            pedido.save()
+    else:
+        # Evento não esperado
+        print('Unhandled event type {}'.format(event['type']))
+
     return HttpResponse(status=200)
+

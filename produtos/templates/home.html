@@ -1,52 +1,39 @@
-<html>
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
 <head>
-   
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pagar Produto</title>
     <script src="https://polyfill.io/v3/polyfill.min.js?version=3.52.1&features=fetch"></script>
     <script src="https://js.stripe.com/v3/"></script>
+    <link rel="stylesheet" href="{% static 'homeStyle.css' %}">
 </head>
 <body>
-    <body>
-        <section>
-          <div class="product">
-           
+    <section data-payment-intent-url="{% url 'create-payment-intent' produto.id %}" data-stripe-public-key="{{ STRIPE_PUBLIC_KEY }}">
+        <div class="product">
+            <h1>PROVISÓRIO</h1>
             <div class="description">
-              <h3>{{produto.nome}}</h3>
-              <h5>{{produto.exibirPreco}}</h5>
+                <h3>{{ produto.nome }}</h3>
+                <h5>{{ produto.exibirPreco }}</h5>
             </div>
-          </div>
-         
-            <button type="submit" id="checkout-button">Checkout</button>
+        </div>
 
-        </section>
-      </body>
-  {% csrf_token %}
+        <form id="payment-form">{% csrf_token %}
+            <section>Email</section>
+            <input type="email" placeholder="abc@exemplo.com" id="email" required>
+            <div id="payment-element">
+                <!--Stripe.js injects the Payment Element-->
+            </div>
+            <button id="submit">
+                <div class="spinner hidden" id="spinner"></div>
+                <span id="button-text">Comprar</span>
+            </button>
+            <div id="payment-message" class="hidden"></div>
+        </form>
+    </section>
+
+    {% csrf_token %}
+    <script src="{% static 'homeScript.js' %}"></script>
 </body>
-<script type="text/javascript">
-  const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-
-  var stripe = Stripe("{{ STRIPE_PUBLIC_KEY }}");
-  var checkoutButton = document.getElementById("checkout-button");
-  checkoutButton.addEventListener("click", function () {
-    fetch("{% url 'create_checkout_session' produto.id %}", {
-      method: "POST",
-      headers: {
-          'X-CSRFToken': csrftoken
-      }
-    })
-      .then(function (response) {
-        return response.json();
-      })
-      .then(function (session) {
-        return stripe.redirectToCheckout({ sessionId: session.id });
-      })
-      .then(function (result) {
-        if (result.error) {
-          alert(result.error.message);
-        }
-      })
-      .catch(function (error) {
-        console.error("Error:", error);
-      });
-  });
-</script>
 </html>
